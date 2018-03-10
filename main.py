@@ -1,7 +1,10 @@
+import getopt
 import os
+import sys
 
 if os.name == 'nt':
     import pydivert
+    import ctypes
 elif os.name == "posix":
     from scapy.all import *
     from netfilterqueue import NetfilterQueue
@@ -18,22 +21,30 @@ def xor(data):
 
 
 def win_main():
+    if ctypes.windll.shell32.IsUserAnAdmin() == 0:
+        print("Error: Must be run as administrator !")
+        return
     with pydivert.WinDivert("tcp.DstPort == " + str(port) + " or tcp.SrcPort == " + str(port)) as w:
-        print("[*] Waiting for data")
-        for packet in w:
-            # print(packet)
-            if len(packet.payload) > 0:
-                if packet.dst_port == port:
-                    print("Client request: ", packet.payload)
-                if packet.src_port == port:
-                    print("Server traffic: ", packet.payload)
-                packet.payload = xor(packet.payload)
-                if packet.dst_port == port:
-                    print("Client traffic: ", packet.payload)
-                if packet.src_port == port:
-                    print("Server Request: ", packet.payload)
-            w.send(packet)
-    w.close()
+        try:
+            if not mute:
+                print("[*] Waiting for data")
+            for packet in w:
+                # print(packet)
+                if len(packet.payload) > 0:
+                    if (not mute) and packet.dst_port == port:
+                        print("Client request: ", packet.payload)
+                    if (not mute) and verbose and packet.src_port == port:
+                        print("Server traffic: ", packet.payload)
+                    packet.payload = xor(packet.payload)
+                    if (not mute) and verbose and packet.dst_port == port:
+                        print("Client traffic: ", packet.payload)
+                    if (not mute) and packet.src_port == port:
+                        print("Server Request: ", packet.payload)
+                w.send(packet)
+        except KeyboardInterrupt:
+            if not mute:
+                print("Shutdown...")
+        w.close()
 
 
 def scapy_process(packet):
@@ -41,22 +52,22 @@ def scapy_process(packet):
 
     data = bytes(pkt[TCP].payload)
     if len(data) > 0:
-        if pkt[TCP].dport == port:
+        if (not mute) and verbose and pkt[TCP].dport == port:
             print("Client traffic: ", data)
-        if pkt[TCP].sport == port:
+        if (not mute) and pkt[TCP].sport == port:
             print("Server request: ", data)
 
         data = xor(data)
 
-        if pkt[TCP].dport == port:
+        if (not mute) and pkt[TCP].dport == port:
             print("Client request: ", data)
-        if pkt[TCP].sport == port:
+        if (not mute) and verbose and pkt[TCP].sport == port:
             print("Server traffic: ", data)
 
         pkt[TCP].payload = data
         del pkt[IP].chksum  # No need to update IP checksum
         del pkt[TCP].chksum  # Force update TCP checksum
-        pkt.show2()
+        # pkt.show2()
 
         packet.set_payload(bytes(pkt))
 
@@ -75,7 +86,8 @@ def linux_main():
     nfqueue = NetfilterQueue()
     nfqueue.bind(42, scapy_process)
     try:
-        print("[*] Waiting for data")
+        if not mute:
+            print("[*] Waiting for data")
         nfqueue.run()
     except KeyboardInterrupt:
         print()
@@ -84,15 +96,51 @@ def linux_main():
     os.system("iptables -D INPUT -p tcp --dport " + str(port) + " -j NFQUEUE --queue-num 42")
     os.system("iptables -D OUTPUT -p tcp --sport " + str(port) + " -j NFQUEUE --queue-num 42")
 
-    print("Successfully shutdown")
+    if not mute:
+        print("Successfully shutdown")
+
+
+def print_help():
+    print("Help :", sys.argv[0])
+    print("\t-h, --help\t\tPrint this help")
+    print("\t-v, --verbose\t\tPrint traffic details")
+    print("\t-m, --mute\t\tMute all traffic logs")
+    print("\t-p, --port\t\tService port")
+    print("\t-t, --target\t\tIP filter")
+
+
+def params():
+    global verbose, mute, port, target, key
+
+    opts, args = getopt.getopt(sys.argv[1:], "hvmp:k:t:", ["help", "verbose", "mute", "port=", "target=", "key="])
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            print_help()
+            sys.exit()
+        elif opt in ("-v", "--verbose"):
+            verbose = True
+        elif opt in ("-m", "--mute"):
+            mute = True
+        elif opt in ("-p", "--port"):
+            port = int(arg)
+        elif opt in ("-t", "--target"):
+            target = arg
+        elif opt in ("-k", "--key"):
+            key = bytearray(arg.encode('utf-8'))
 
 
 if __name__ == '__main__':
-    port = 1723
+    # Default parameters
+    port = 80
     key = "msqnbtjcfszoezjlfgd"
     key = bytearray(key.encode('utf-8'))
+    verbose = False
+    mute = False
+    target = '0.0.0.0'
 
-    print("key in use:", key)
+    params()
+
+    print("key in use:", key.decode("utf-8"))
     if os.name == 'nt':
         win_main()
     elif os.name == "posix":
