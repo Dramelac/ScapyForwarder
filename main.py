@@ -1,11 +1,11 @@
 import getopt
 import os
-import sys
-import socket
+from sys import argv, exit
+from socket import gethostbyname
 
 if os.name == 'nt':
     import pydivert
-    import ctypes
+    from ctypes import windll
 elif os.name == "posix":
     from scapy.all import *
     from netfilterqueue import NetfilterQueue
@@ -22,15 +22,14 @@ def xor(data):
 
 
 def win_main():
-    if ctypes.windll.shell32.IsUserAnAdmin() == 0:
+    if windll.shell32.IsUserAnAdmin() == 0:
         print("Error: Must be run as administrator !")
         return
-    filterIp = ""
+    filterIP = "tcp.DstPort == " + str(port) + " or tcp.SrcPort == " + str(port)
     if target is not None:
-        filterIp = "(ip.SrcAddr == " + str(target) + " or ip.DstAddr == " + str(target) + ") and "
-    filterIp += "(tcp.DstPort == " + str(port) + " or tcp.SrcPort == " + str(port) + ")"
-    print(filterIp)
-    with pydivert.WinDivert(filterIp) as w:
+        filterIP = "(ip.SrcAddr == " + str(target) + " or ip.DstAddr == " + str(target) + ") and (" + filterIP + ")"
+    print(filterIP)
+    with pydivert.WinDivert(filterIP) as w:
         try:
             if not mute:
                 print("[*] Waiting for data")
@@ -86,8 +85,13 @@ def linux_main():
         return
 
     # Activate nfqueue into iptables :
-    os.system("iptables -I INPUT -p tcp --dport " + str(port) + " -j NFQUEUE --queue-num 42")
-    os.system("iptables -I OUTPUT -p tcp --sport " + str(port) + " -j NFQUEUE --queue-num 42")
+    filterIN = "-p tcp --dport " + str(port) + " -j NFQUEUE --queue-num 42"
+    filterOUT = "-p tcp --sport " + str(port) + " -j NFQUEUE --queue-num 42"
+    if target is not None:
+        filterIN = "-s " + str(target) + " " + filterIN
+        filterOUT = "-d " + str(target) + " " + filterOUT
+    os.system("iptables -I INPUT " + filterIN)
+    os.system("iptables -I OUTPUT " + filterOUT)
 
     nfqueue = NetfilterQueue()
     nfqueue.bind(42, scapy_process)
@@ -99,15 +103,15 @@ def linux_main():
         print()
 
     # Restoring iptables
-    os.system("iptables -D INPUT -p tcp --dport " + str(port) + " -j NFQUEUE --queue-num 42")
-    os.system("iptables -D OUTPUT -p tcp --sport " + str(port) + " -j NFQUEUE --queue-num 42")
+    os.system("iptables -D INPUT " + filterIN)
+    os.system("iptables -D OUTPUT " + filterOUT)
 
     if not mute:
         print("Successfully shutdown")
 
 
 def print_help():
-    print("Help :", sys.argv[0])
+    print("Help :", argv[0])
     print("\t-h, --help\t\tPrint this help")
     print("\t-v, --verbose\t\tPrint traffic details")
     print("\t-m, --mute\t\tMute all traffic logs")
@@ -118,11 +122,11 @@ def print_help():
 def params():
     global verbose, mute, port, target, key
 
-    opts, args = getopt.getopt(sys.argv[1:], "hvmp:k:t:", ["help", "verbose", "mute", "port=", "target=", "key="])
+    opts, args = getopt.getopt(argv[1:], "hvmp:k:t:", ["help", "verbose", "mute", "port=", "target=", "key="])
     for opt, arg in opts:
         if opt in ("-h", "--help"):
             print_help()
-            sys.exit()
+            exit()
         elif opt in ("-v", "--verbose"):
             verbose = True
         elif opt in ("-m", "--mute"):
@@ -130,7 +134,7 @@ def params():
         elif opt in ("-p", "--port"):
             port = int(arg)
         elif opt in ("-t", "--target"):
-            target = socket.gethostbyname(arg)
+            target = gethostbyname(arg)
         elif opt in ("-k", "--key"):
             key = bytearray(arg.encode('utf-8'))
 
