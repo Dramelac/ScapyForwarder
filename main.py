@@ -1,6 +1,7 @@
 import getopt
 import os
 import sys
+import socket
 
 if os.name == 'nt':
     import pydivert
@@ -24,7 +25,12 @@ def win_main():
     if ctypes.windll.shell32.IsUserAnAdmin() == 0:
         print("Error: Must be run as administrator !")
         return
-    with pydivert.WinDivert("tcp.DstPort == " + str(port) + " or tcp.SrcPort == " + str(port)) as w:
+    filterIp = ""
+    if target is not None:
+        filterIp = "(ip.SrcAddr == " + str(target) + " or ip.DstAddr == " + str(target) + ") and "
+    filterIp += "(tcp.DstPort == " + str(port) + " or tcp.SrcPort == " + str(port) + ")"
+    print(filterIp)
+    with pydivert.WinDivert(filterIp) as w:
         try:
             if not mute:
                 print("[*] Waiting for data")
@@ -124,7 +130,7 @@ def params():
         elif opt in ("-p", "--port"):
             port = int(arg)
         elif opt in ("-t", "--target"):
-            target = arg
+            target = socket.gethostbyname(arg)
         elif opt in ("-k", "--key"):
             key = bytearray(arg.encode('utf-8'))
 
@@ -136,11 +142,12 @@ if __name__ == '__main__':
     key = bytearray(key.encode('utf-8'))
     verbose = False
     mute = False
-    target = '0.0.0.0'
+    target = None
 
     params()
 
-    print("key in use:", key.decode("utf-8"))
+    if not mute:
+        print("key in use:", key.decode("utf-8"))
     if os.name == 'nt':
         win_main()
     elif os.name == "posix":
