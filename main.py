@@ -1,7 +1,7 @@
 import getopt
 import os
-from sys import argv, exit
 from socket import gethostbyname
+from sys import argv, exit
 
 if os.name == 'nt':
     import pydivert
@@ -57,17 +57,17 @@ def scapy_process(packet):
 
     data = bytes(pkt[TCP].payload)
     if len(data) > 0:
-        if (not mute) and verbose and pkt[TCP].dport == port:
-            print("Client traffic: ", data)
-        if (not mute) and pkt[TCP].sport == port:
-            print("Server request: ", data)
+        if (not mute) and verbose and pkt[TCP].sport == port:
+            print("Received traffic: ", data)
+        if (not mute) and pkt[TCP].dport == port:
+            print("Sent request: ", data)
 
         data = xor(data)
 
-        if (not mute) and pkt[TCP].dport == port:
-            print("Client request: ", data)
-        if (not mute) and verbose and pkt[TCP].sport == port:
-            print("Server traffic: ", data)
+        if (not mute) and pkt[TCP].sport == port:
+            print("Received request: ", data)
+        if (not mute) and verbose and pkt[TCP].dport == port:
+            print("Sent traffic: ", data)
 
         pkt[TCP].payload = data
         del pkt[IP].chksum  # No need to update IP checksum
@@ -87,9 +87,13 @@ def linux_main():
     # Activate nfqueue into iptables :
     filterIN = "-p tcp --dport " + str(port) + " -j NFQUEUE --queue-num 42"
     filterOUT = "-p tcp --sport " + str(port) + " -j NFQUEUE --queue-num 42"
+    if mode == "Client":
+        filterIN, filterOUT = filterOUT, filterIN
+
     if target is not None:
         filterIN = "-s " + str(target) + " " + filterIN
         filterOUT = "-d " + str(target) + " " + filterOUT
+
     os.system("iptables -I INPUT " + filterIN)
     os.system("iptables -I OUTPUT " + filterOUT)
 
@@ -111,18 +115,21 @@ def linux_main():
 
 
 def print_help():
-    print("Help :", argv[0])
+    print("Help :", argv[0], "[options]")
+    print("\t-C, --client\t\tClient mode")
+    print("\t-S, --server\t\tServer mode (default linux mode")
     print("\t-h, --help\t\tPrint this help")
     print("\t-v, --verbose\t\tPrint traffic details")
     print("\t-m, --mute\t\tMute all traffic logs")
     print("\t-p, --port\t\tService port")
+    print("\t-k, --key\t\tXOR key")
     print("\t-t, --target\t\tIP filter")
 
 
 def params():
-    global verbose, mute, port, target, key
+    global verbose, mute, port, target, key, mode
 
-    opts, args = getopt.getopt(argv[1:], "hvmp:k:t:", ["help", "verbose", "mute", "port=", "target=", "key="])
+    opts, args = getopt.getopt(argv[1:], "CShvmp:k:t:", ["help", "verbose", "mute", "port=", "target=", "key="])
     for opt, arg in opts:
         if opt in ("-h", "--help"):
             print_help()
@@ -137,16 +144,22 @@ def params():
             target = gethostbyname(arg)
         elif opt in ("-k", "--key"):
             key = bytearray(arg.encode('utf-8'))
+        elif opt in ("-C", "--client"):
+            mode = "Client"
+        elif opt in ("-S", "--server"):
+            mute = "Server"
 
 
 if __name__ == '__main__':
     # Default parameters
     port = 80
-    key = "msqnbtjcfszoezjlfgd"
+    key = "azerty"
     key = bytearray(key.encode('utf-8'))
     verbose = False
     mute = False
     target = None
+
+    mode = None
 
     params()
 
@@ -155,6 +168,8 @@ if __name__ == '__main__':
     if os.name == 'nt':
         win_main()
     elif os.name == "posix":
+        if mode is None:
+            mode = "Server"
         linux_main()
     else:
         print("Error: os not supported")
