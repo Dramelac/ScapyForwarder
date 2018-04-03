@@ -147,7 +147,7 @@ def params():
         elif opt in ("-C", "--client"):
             mode = "Client"
         elif opt in ("-S", "--server"):
-            mute = "Server"
+            mode = "Server"
 
 
 if __name__ == '__main__':
