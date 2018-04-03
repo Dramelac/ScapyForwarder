@@ -57,17 +57,31 @@ def scapy_process(packet):
 
     data = bytes(pkt[TCP].payload)
     if len(data) > 0:
-        if (not mute) and verbose and pkt[TCP].sport == port:
-            print("Received traffic: ", data)
-        if (not mute) and pkt[TCP].dport == port:
-            print("Sent request: ", data)
+        if not mute:
+            if pkt[TCP].sport == port:
+                if mode == "Client" and verbose:
+                    print("Received traffic: ", data)
+                elif mode == "Server":
+                    print("Sent request: ", data)
+            if pkt[TCP].dport == port:
+                if mode == "Client":
+                    print("Sent request: ", data)
+                elif mode == "Server" and verbose:
+                    print("Received traffic", data)
 
         data = xor(data)
 
-        if (not mute) and pkt[TCP].sport == port:
-            print("Received request: ", data)
-        if (not mute) and verbose and pkt[TCP].dport == port:
-            print("Sent traffic: ", data)
+        if not mute:
+            if pkt[TCP].sport == port:
+                if mode == "Client":
+                    print("Received request: ", data)
+                elif mode == "Server" and verbose:
+                    print("Sent traffic: ", data)
+            if pkt[TCP].dport == port:
+                if mode == "Client" and verbose:
+                    print("Sent traffic: ", data)
+                elif mode == "Server":
+                    print("Receive request: ", data)
 
         pkt[TCP].payload = data
         del pkt[IP].chksum  # No need to update IP checksum
